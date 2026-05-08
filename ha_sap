@@ -6,7 +6,7 @@
 # License:     GPLv2
 #############################################################
 
-SVER='1.0.8'
+SVER='1.0.9'
 RCFILE="/usr/lib/supportconfig/resources/supportconfig.rc"
 TITLE="SUSE SAP"
 LF=plugin-ha_sap.txt
@@ -99,11 +99,12 @@ done
 log_write $LF "#==[ Authentication information ]===================#"
 log_cmd $LF "grep -v '^\s*\#\|^$' /etc/nsswitch.conf | head -5"
 log_cmd $LF "grep -E '^[[:alnum:]]{3}adm:' /etc/passwd"
+log_cmd $LF "grep -E '^[[:alnum:]]{3}xsa:' /etc/passwd"
 log_cmd $LF "grep -E '^sap' /etc/passwd"
 log_cmd $LF "grep -E '^[[:alnum:]]{3}adm:' /etc/group"
 log_cmd $LF "grep -E -e '^sap' -e '^sdba:' -e '^dba:' /etc/group"
 for f in /etc/sudoers $(find /etc/sudoers.d/ ! -name "*~"  ! -name "*.*" -type f | sort ); do
-	log_cmd $LF "grep -E -e '[[:alnum:]]{3}adm' -e 'crm_attribute' -e 'SAPHanaSR' $f"
+	log_cmd $LF "grep -E -e '[[:alnum:]]{3}adm' -e 'crm_attribute' -e 'SAPHanaSR' -e 'hacluster' $f"
 done
 ## SAP BASIC Tuning ##
 log_write $LF "#==[ SAP Tuning information ]=======================#"
@@ -281,6 +282,27 @@ do
 		log_write $LF "RETURN CODE: $?"; log_write $LF
 		log_cmd $LF "su - ${ELEMENT[${ADM}]} -c 'HDBSettings.sh getParameter.py --key=global.ini/system_replication/operation_mode --sapcontrol=1'"
 		log_write $LF "RETURN CODE: $?"; log_write $LF
+		# collect XSA info
+		log_cmd $LF "su - ${ELEMENT[${ADM}]} -c 'XSA info' 2>/dev/null"
+                xsaRet=$?
+		log_write $LF "RETURN CODE: $xsaRet"; log_write $LF
+		if [ "$xsaRet" != 127 ]; then
+			# 'XSA diagnose' and 'XSA du' sadly take to long for this script
+			# 'XSA collect-traces -o <zip file name>' to collect xsa traces and
+			# logs. Collects 'all' xsa logs, archive may be to big for our plugin
+			log_cmd $LF "su - ${ELEMENT[${ADM}]} -c 'XSA list-tenants'"
+			log_write $LF "RETURN CODE: $?"; log_write $LF
+			xsaStorage=$(su - "${ELEMENT[${ADM}]}" -c 'cdcoc; grep "fss_storage_path = " xscontroller.ini 2>/dev/null' | awk -F= '{print $2}')
+			if [ -n "$xsaStorage" ]; then
+				log_write $LF "XSA fss is $xsaStorage"
+				log_cmd $LF "ls -ld $xsaStorage"
+				log_write $LF "RETURN CODE: $?"; log_write $LF
+				log_cmd $LF "du -sm ${xsaStorage}/fss/*"
+				log_write $LF "RETURN CODE: $?"; log_write $LF
+				log_cmd $LF "grep $xsaStorage /etc/fstab"
+				log_write $LF "RETURN CODE: $?"; log_write $LF
+			fi
+		fi
 	else
 		log_write $LF "RETURN CODE: $?"; log_write $LF
 		HDBEXIST=false
@@ -299,7 +321,7 @@ do
 	INSTANCE_CONFIG_DIR=$(su - "${ELEMENT[${ADM}]}" -c 'cdcoc && pwd' 2>/dev/null)
 	INSTANCE_TRACE_DIR=$(su - "${ELEMENT[${ADM}]}" -c 'cdtrace && pwd' 2>/dev/null)
 	if [[ -d $INSTANCE_CONFIG_DIR ]] && [[ $HDBEXIST == true ]]; then
-		conf_files $LF  "${INSTANCE_CONFIG_DIR}"/global.ini "${INSTANCE_CONFIG_DIR}"/nameserver.ini "${INSTANCE_CONFIG_DIR}"/daemon.ini
+		conf_files $LF  "${INSTANCE_CONFIG_DIR}"/global.ini "${INSTANCE_CONFIG_DIR}"/nameserver.ini "${INSTANCE_CONFIG_DIR}"/daemon.ini "${INSTANCE_CONFIG_DIR}"/xscontroller.ini
 	fi
 	if [[ -d $INSTANCE_PROFILE_DIR ]]; then
 		conf_files $LF "${INSTANCE_PROFILE_DIR}"/"${ELEMENT[${SID}]}"_*
@@ -316,6 +338,7 @@ do
 	collect_instance_log "${trace_dir}"/nameserver_suschksrv.trc
 	# /usr/sap/HA1/HDB10/hanacost1/trace/nameserver_saphanasr_multitarget_hook.trc
 	collect_instance_log "${trace_dir}"/nameserver_saphanasr_multitarget_hook.trc
+	collect_instance_log "${trace_dir}"/xsa_diagnose_results.txt
 
 	## Adding support for sap-suse-cluster-connector  ##
         if log_cmd $LF "rpm -qa | grep -E 'sap-suse-cluster-connector|sap_suse_cluster_connector'"; then
