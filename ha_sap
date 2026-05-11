@@ -48,15 +48,16 @@ log_write $LF
 ## Docs  ##
 log_write $LF "#==[ Referencee Documentation ]=====================#"
 echo -e "Current Documentation:
-\t https://documentation.suse.com/en-us/sles-sap/15-SP6/
-\t https://documentation.suse.com/en-us/sles-sap/15-SP5/
-\t https://documentation.suse.com/en-us/sles-sap/15-SP4/
-\t https://documentation.suse.com/en-us/sles-sap/15-SP3/
-\t https://documentation.suse.com/en-us/sles-sap/15-SP2/
-\t https://documentation.suse.com/en-us/sles-sap/15-SP1/
+\t https://documentation.suse.com/sles-sap/15-SP7/
+\t https://documentation.suse.com/sles-sap/15-SP6/
+\t https://documentation.suse.com/sles-sap/15-SP5/
+\t https://documentation.suse.com/sles-sap/15-SP4/
+\t https://documentation.suse.com/sles-sap/15-SP3/
+\t https://documentation.suse.com/sles-sap/15-SP2/
+\t https://documentation.suse.com/sles-sap/15-SP1/
 
 Tuning: 
-\t https:://documentation.suse.com/sles-sap/15-SP5/single-html/SLES-SAP-guide/index.html#cha-tune
+\t https://documentation.suse.com/sles-sap/15-SP7/single-html/SLES-SAP-guide/#cha-tune
 
 Best Practice Guides: \t https://documentation.suse.com/sbp/sap/
 \tSAP HANA System Replication Scale-Out - Performance-Optimized Scenario:\t https://documentation.suse.com/sbp/sap-15/html/SLES4SAP-hana-angi-scaleout-perfopt-15/index.html
@@ -103,9 +104,14 @@ log_cmd $LF "grep -E '^[[:alnum:]]{3}xsa:' /etc/passwd"
 log_cmd $LF "grep -E '^sap' /etc/passwd"
 log_cmd $LF "grep -E '^[[:alnum:]]{3}adm:' /etc/group"
 log_cmd $LF "grep -E -e '^sap' -e '^sdba:' -e '^dba:' /etc/group"
-for f in /etc/sudoers $(find /etc/sudoers.d/ ! -name "*~"  ! -name "*.*" -type f | sort ); do
+for f in /etc/sudoers $(find /etc/sudoers.d/ ! -name "*~"  ! -name "*.*" -type f | sort ) /usr/etc/sudoers $(find /usr/etc/sudoers.d ! -name "*~"  ! -name "*.*" -type f 2>/dev/null | sort ); do
 	log_cmd $LF "grep -E -e '[[:alnum:]]{3}adm' -e 'crm_attribute' -e 'SAPHanaSR' -e 'hacluster' $f"
 done
+if [[ -f /etc/sysctl.d/sap_hdb_sysctl.conf ]]; then
+	# hdbinst currently writes kernel parameter tuning no longer to
+	# /etc/sysctl.conf but to a special file in /etc/sysctl.d/
+	conf_files $LF /etc/sysctl.d/sap_hdb_sysctl.conf
+fi
 ## SAP BASIC Tuning ##
 log_write $LF "#==[ SAP Tuning information ]=======================#"
 
@@ -134,6 +140,7 @@ else
 	if log_cmd $LF "systemctl status saptune.service"; then
 		log_cmd $LF "saptune version"
 		echo -e "HINT: since saptune 3.0 a special saptune supportconfig plugin exists\n"
+		log_cmd $LF "saptune check"
 		log_cmd $LF "saptune status"
 		log_cmd $LF "saptune solution list"
 		log_cmd $LF "saptune note list"
@@ -149,7 +156,7 @@ fi
 ## SAP Host Agent ##
 log_write $LF "#==[ SAP Host Agent Information ]===================#"
 log_cmd $LF "/usr/sap/hostctrl/exe/saphostexec -version |tail -30"
-if log_cmd $LF "/usr/sap/hostctrl/exe/saphostexec -status"; then
+if ! log_cmd $LF "/usr/sap/hostctrl/exe/saphostexec -status"; then
 	echo -e "ERROR: Please make sure 'sapinit.service' is enabled and running. \n"
 fi
 log_cmd $LF "systemctl status sapinit"
